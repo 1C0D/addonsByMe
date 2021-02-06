@@ -30,8 +30,8 @@
 
 bl_info = {
     "name": "Auto Blend Save",
-    "author": "sambler",
-    "version": (1, 2),
+    "author": "sambler, 1C0D",
+    "version": (1, 3),
     "blender": (2, 80, 0),
     "location": "blender",
     "description": "Automatically save multiple copies of a blend file",
@@ -41,10 +41,20 @@ bl_info = {
     "category": "System",
     }
 
+"""
+Use Auto Save as usual
+
+Sometime a refresh in Recover autosave is needed to see last file
+
+"""
+
 import bpy
+from bpy.types import Operator
+from bpy_extras.io_utils import ImportHelper
 from bpy.app.handlers import persistent
 import datetime as dt
 import os
+import tempfile
 
 ## TIME_FMT_STR is used for filename prefix so keep path friendly
 ## deleting old files relies on this format - CHANGE WITH CAUTION
@@ -64,12 +74,9 @@ class AutoBlendSavePreferences(bpy.types.AddonPreferences):
     save_on_interval : bpy.props.BoolProperty(name='Save at intervals',
                     description='Save the file at timed intervals',
                     default=True)
-    save_interval : bpy.props.IntProperty(name='Save interval',
+    save_interval : bpy.props.IntProperty(name='Time interval',
                     description='Number of minutes between each save',
-                    default=5, min=1, max=120, soft_max=30)
-    save_to_path : bpy.props.StringProperty(name='Save to path',
-                    description='Path to auto save files into',
-                    default='//AutoSave')
+                    default=3, min=1, max=120, soft_max=30)
     max_save_files : bpy.props.IntProperty(name='Max save files',
                     description='Maximum number of copies to save, 0 means unlimited',
                     default=10, min=0, max=100)
@@ -78,9 +85,9 @@ class AutoBlendSavePreferences(bpy.types.AddonPreferences):
                     default=True)
 
     def draw(self, context):
+
         layout = self.layout
         col = layout.column()
-
         row = col.row()
         row.prop(self,'save_after_open')
         row = col.row()
@@ -90,13 +97,8 @@ class AutoBlendSavePreferences(bpy.types.AddonPreferences):
         if self.save_on_interval:
             row.prop(self,'save_interval')
         row = col.row()
-        row.prop(self,'save_to_path')
-        row = col.row()
-        if bpy.data.filepath == '':
-            par = os.getcwd()
-        else:
-            par = None
-        row.label(text='Current file will save to: '+bpy.path.abspath(self.save_to_path, start=par))
+        paths = context.preferences.filepaths
+        row.prop(paths, "temporary_directory", text="Temporary Files")
         row = col.row()
         row.prop(self,'max_save_files')
         row = col.row()
@@ -118,24 +120,19 @@ def time_since_save():
 def save_file():
     global last_saved
     last_saved = dt.datetime.now()
-    p = prefs()
-
+    p = prefs()   
+    dir=bpy.context.preferences.filepaths.temporary_directory
+    save_dir=bpy.path.abspath(dir) if dir else tempfile.gettempdir()
+    
     basename = bpy.data.filepath
+    
     if basename == '':
         basename = 'Unsaved.blend'
     else:
         basename = bpy.path.basename(basename)
 
-    try:
-        save_dir = bpy.path.abspath(p.save_to_path)
-        if not os.path.isdir(save_dir):
-            os.mkdir(save_dir)
-    except:
-        print("Error creating auto save directory.")
-        return
-
     # delete old files if we want to limit the number of saves
-    if p.max_save_files > 0:
+    if p.max_save_files:
         try:
             # as we prefix saved blends with a timestamp
             # sorted puts the oldest prefix at the start of the list
@@ -175,17 +172,18 @@ def timed_save(scn):
             and time_since_save() >= prefs().save_interval:
         save_file()
 
+
 def register():
+
     bpy.utils.register_class(AutoBlendSavePreferences)
     bpy.app.handlers.load_pre.append(save_pre_close)
     bpy.app.handlers.load_post.append(save_post_open)
     bpy.app.handlers.depsgraph_update_post.append(timed_save)
+    bpy.context.preferences.filepaths.use_auto_save_temporary_files = False   
 
 def unregister():
     bpy.app.handlers.load_pre.remove(save_pre_close)
     bpy.app.handlers.load_post.remove(save_post_open)
     bpy.app.handlers.depsgraph_update_post.remove(timed_save)
     bpy.utils.unregister_class(AutoBlendSavePreferences)
-
-if __name__ == "__main__":
-    register()
+    bpy.context.preferences.filepaths.use_auto_save_temporary_files = True
